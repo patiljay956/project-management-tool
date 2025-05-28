@@ -81,42 +81,51 @@ export const createProject = asyncHandler(async (req, res) => {
   );
 });
 
+
 export const updateProject = asyncHandler(async (req, res) => {
-  // get projectId from params
-  const { projectId } = req.params;
+    const { projectId } = req.params;
+    if (!projectId) throw new APIError(401, "project id is required");
 
-  // get data
-  const { name, description } = req.body;
+    const { name, description } = req.body;
+    const userId = req.user.id;
 
-  // check if a project with same name having different id exists
-  const existingProject = await Project.findOne({
-    name: name.trim(),
-    createdBy: req.user.id,
-    _id: {
-      $ne: projectId,
-    },
-  });
-  if (existingProject)
-    throw new APIError(
-      400,
-      "Update Project Error",
-      "Another project with same name already exists",
-    );
+    // check if another project in the db already uses the name
+    const existProjectWithName = await Project.findOne({
+        name: name.trim(),
+        createdBy: userId,
+    });
 
-  // update project details in db
-  const updatedProject = await Project.findByIdAndUpdate(
-    projectId,
-    { name, description },
-    { new: true },
-  )
-    .select("-createdAt -updatedAt -__v")
-    .populate("createdBy", "_id username email");
-  if (!updatedProject)
-    throw new APIError(400, "Update Project Error", "Something went wrong while updating project");
+    if (existProjectWithName)
+        throw new APIError(409, "Project with this name already exists");
 
-  // success status to user
-  return res.status(200).json(new APIResponse(200, "Project updated successfully", updatedProject));
+    // get the existing project
+    const existingProject = await Project.findById(projectId);
+
+    if (!existingProject) throw new APIError(404, "Project not found");
+
+    //  Check if the user is the creator of the project (authorization)
+    if (existingProject.createdBy.toString() !== userId.toString()) {
+        throw new APIError(403, "You are not allowed to update this project");
+    }
+
+    // Update the fields
+    existingProject.name = name.trim();
+    existingProject.description = description.trim();
+
+    // Save updated project
+    const updatedProject = await existingProject.save();
+
+    return res
+        .status(200)
+        .json(
+            new APIResponse(
+                200,
+                updatedProject,
+                "Project updated successfully",
+            ),
+        );
 });
+
 
 export const deleteProject = asyncHandler(async (req, res) => {
   // get projectId from params
